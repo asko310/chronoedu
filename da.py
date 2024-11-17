@@ -1,59 +1,85 @@
-# Importăm librăriile necesare
-import joblib
-import numpy as np
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report
-import matplotlib.pyplot as plt
-import seaborn as sns
+from inference_sdk import InferenceHTTPClient
+import telebot
+import os
+import time
 
-# Setăm stilul pentru vizualizare
-sns.set(style="whitegrid")
+# Initialize Roboflow Inference Client
+CLIENT = InferenceHTTPClient(
+    api_url="https://detect.roboflow.com",
+    api_key="Uas34mKiTLNinW47SXUu"
+)
 
-# Încărcăm datele
-data = pd.read_csv("spectra_data.csv")
+# Initialize Telegram bot
+API_TOKEN = '7550160938:AAGAdvfaw-q5OnaHRYyI-6ZAXAxJ1ij94HU'
+bot = telebot.TeleBot(API_TOKEN)
 
-# Explorăm datele
-print(data.head())
+# Function to process the image with Roboflow and filter by confidence
 
-# Împărțim datele în caracteristici (spectru) și etichete (toxicitatea)
-X = data.drop(columns=["toxic"])  # Presupunem că ultima coloană este eticheta
-y = data["toxic"]
 
-# Împărțim datele în seturi de antrenament și test
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42)
+def process_image(image_path, confidence_threshold=0.5):
+    try:
+        # Perform inference
+        result = CLIENT.infer(image_path, model_id="colorant-detection/4")
 
-# Creăm și antrenăm modelul
-model = RandomForestClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
+        # Log the result for debugging
+        print("Roboflow response:", result)
 
-# Facem predicții pe setul de test
-y_pred = model.predict(X_test)
+        # Extract predictions
+        predictions = result.get("predictions", {})
+        if not predictions:
+            return ["No detections found"]
 
-# Evaluăm modelul
-print("Acuratețea modelului:", accuracy_score(y_test, y_pred))
-print(classification_report(y_test, y_pred))
+        # Filter predictions by confidence threshold
+        labels = []
+        for label, details in predictions.items():
+            confidence = details.get('confidence', 0)
+            if confidence >= confidence_threshold:
+                labels.append(label)
 
-# Vizualizăm importanța caracteristicilor
-importances = model.feature_importances_
-indices = np.argsort(importances)[::-1]
-plt.figure(figsize=(12, 6))
-plt.title("Importanța caracteristicilor")
-plt.bar(range(X.shape[1]), importances[indices], align="center")
-plt.xticks(range(X.shape[1]), X.columns[indices], rotation=90)
-plt.show()
+        # If no labels above the threshold, return a default message
+        if not labels:
+            return ["No confident detections found"]
 
-# Salvăm modelul antrenat
-joblib.dump(model, "toxic_colorant_detector.pkl")
+        return labels
+    except Exception as e:
+        print(f"Error in process_image: {e}")
+        return ["Error: Unable to process the image"]
 
-# Încărcăm modelul pentru a face predicții noi
-loaded_model = joblib.load("toxic_colorant_detector.pkl")
+# Telegram bot handler for images
 
-# Exemplu de spectru nou cu intensități
-new_spectrum = np.array([0.5, 0.8, 1.2, 0.3, 0.4, 0.7]).reshape(1, -1)
 
-# Facem predicția pentru spectrul nou
-prediction = loaded_model.predict(new_spectrum)
-print("Predicția pentru spectrul nou:", prediction)
+@bot.message_handler(content_types=['photo'])
+def handle_image(message):
+    try:
+        # Download the image from the user
+        file_info = bot.get_file(message.photo[-1].file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        image_path = f"{message.photo[-1].file_id}.jpg"
+
+        with open(image_path, 'wb') as new_file:
+            new_file.write(downloaded_file)
+
+        # Process the image
+        labels = process_image(image_path)
+
+        # Send the detected labels back to the user
+        response = "Detected: " + ", ".join(labels)
+        bot.send_message(message.chat.id, response)
+
+        # Clean up saved image
+        if os.path.exists(image_path):
+            os.remove(image_path)
+    except Exception as e:
+        print(f"Error handling image: {e}")
+        bot.send_message(
+            message.chat.id, "Sorry, an error occurred while processing your image.")
+
+
+# Resilient bot polling with retry logic
+while True:
+    try:
+        print("Bot is running...")
+        bot.polling()
+    except Exception as e:
+        print(f"Bot polling error: {e}")
+        time.sleep(5)  # Wait before restarting polling
