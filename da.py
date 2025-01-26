@@ -19,7 +19,7 @@ bot = telebot.TeleBot(API_TOKEN)
 def process_image(image_path, confidence_threshold=0.5):
     try:
         # Perform inference
-        result = CLIENT.infer(image_path, model_id="colorant-detection/4")
+        result = CLIENT.infer(image_path, model_id="colorant-detection/6")
 
         # Log the result for debugging
         print("Roboflow response:", result)
