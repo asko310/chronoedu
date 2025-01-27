@@ -1,12 +1,20 @@
-from inference_sdk import InferenceHTTPClient
-import telebot
-import os
 import time
+import os
+import telebot
+from inference_sdk import InferenceHTTPClient
+from roboflow import Roboflow
+
+
+# Initialize Roboflow API
+rf = Roboflow(api_key="zUmGkrDO82Ep4CuEul5G")
+project = rf.workspace("colorant").project("colorant-detection-v2maf")
+version = project.version(2)
+dataset = version.download("multiclass")
 
 # Initialize Roboflow Inference Client
 CLIENT = InferenceHTTPClient(
     api_url="https://detect.roboflow.com",
-    api_key="Uas34mKiTLNinW47SXUu"
+    api_key="zUmGkrDO82Ep4CuEul5G"
 )
 
 # Initialize Telegram bot
@@ -19,7 +27,8 @@ bot = telebot.TeleBot(API_TOKEN)
 def process_image(image_path, confidence_threshold=0.5):
     try:
         # Perform inference
-        result = CLIENT.infer(image_path, model_id="colorant-detection/6")
+        result = CLIENT.infer(
+            image_path, model_id="colorant-detection-v2maf/2")
 
         # Log the result for debugging
         print("Roboflow response:", result)
